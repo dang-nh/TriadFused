@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "triadfuse"
+version = "0.1.0"
+description = "TriadFuse: Compound adversarial attack framework for document VLMs"
+readme = "README.md"
+authors = [
+    {name = "TriadFuse Team", email = "contact@triadfuse.org"}
+]
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.2",
+    "torchvision",
+    "kornia>=0.7",
+    "albumentations>=1.4",
+    "opencv-python-headless",
+    "transformers>=4.41",
+    "accelerate>=0.31",
+    "sentence-transformers",
+    "open_clip_torch",
+    "lpips",
+    "pytorch-msssim",
+    "numpy",
+    "einops",
+    "rich",
+    "tyro",
+    "pymupdf",
+    "Pillow",
+    "jiwer",
+    "fastwer"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov",
+    "black",
+    "flake8",
+    "mypy",
+    "isort"
+]
+linux = [
+    "bitsandbytes"
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["triadfuse*"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
