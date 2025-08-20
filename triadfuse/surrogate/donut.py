@@ -53,23 +53,50 @@ class DonutSurrogate(SurrogateModel):
         # Load processor and model
         self.processor = DonutProcessor.from_pretrained(model_name)
 
-        # Load model with optional quantization
-        if use_8bit and self.device.type == "cuda":
-            try:
-                from transformers import BitsAndBytesConfig
+        # Load model with error handling
+        try:
+            if use_8bit and self.device.type == "cuda":
+                try:
+                    from transformers import BitsAndBytesConfig
 
-                quantization_config = BitsAndBytesConfig(load_in_8bit=True)
+                    quantization_config = BitsAndBytesConfig(
+                        load_in_8bit=True,
+                        bnb_8bit_compute_dtype=torch.float16,
+                        bnb_8bit_use_double_quant=True,
+                    )
+                    self.model = VisionEncoderDecoderModel.from_pretrained(
+                        model_name,
+                        quantization_config=quantization_config,
+                        device_map="auto",
+                        torch_dtype=torch.float16,
+                        low_cpu_mem_usage=True,
+                    )
+                    print("✓ Loaded model with 8-bit quantization")
+                except ImportError:
+                    print("⚠ bitsandbytes not available, loading in full precision")
+                    self.model = VisionEncoderDecoderModel.from_pretrained(
+                        model_name, 
+                        torch_dtype=torch.float16,
+                        low_cpu_mem_usage=True
+                    )
+                    self.model.to(self.device)
+            else:
+                # Load without quantization
+                dtype = torch.float16 if self.device.type == "cuda" else torch.float32
                 self.model = VisionEncoderDecoderModel.from_pretrained(
-                    model_name,
-                    quantization_config=quantization_config,
-                    device_map="auto",
+                    model_name, 
+                    torch_dtype=dtype,
+                    low_cpu_mem_usage=True
                 )
-            except ImportError:
-                print("bitsandbytes not available, loading in full precision")
-                self.model = VisionEncoderDecoderModel.from_pretrained(model_name)
                 self.model.to(self.device)
-        else:
-            self.model = VisionEncoderDecoderModel.from_pretrained(model_name)
+        except Exception as e:
+            print(f"⚠ Failed to load model on {self.device}, falling back to CPU: {e}")
+            self.device = torch.device("cpu")
+            self.model = VisionEncoderDecoderModel.from_pretrained(
+                model_name, 
+                torch_dtype=torch.float32,
+                low_cpu_mem_usage=True
+            )
             self.model.to(self.device)
 
         # Set model to training mode for gradient computation
@@ -77,6 +104,9 @@ class DonutSurrogate(SurrogateModel):
 
         # Cache decoder start token
         self.decoder_start_token_id = self.model.config.decoder_start_token_id
+        
+        # Get model dtype for input consistency
+        self.model_dtype = next(self.model.parameters()).dtype
 
     def forward_task_loss(
         self, image: torch.Tensor, prompt: str, target: str
@@ -103,6 +133,9 @@ class DonutSurrogate(SurrogateModel):
         pixel_values = self.processor(
             images_list, return_tensors="pt"
         ).pixel_values.to(self.device)
+        
+        # Ensure correct dtype for the model
+        pixel_values = pixel_values.to(dtype=self.model_dtype)
 
         # Prepare decoder inputs and labels
         # Combine prompt and target for full sequence
@@ -179,6 +212,9 @@ class DonutSurrogate(SurrogateModel):
         pixel_values = self.processor(
             images_list, return_tensors="pt"
         ).pixel_values.to(self.device)
+        
+        # Ensure correct dtype for the model
+        pixel_values = pixel_values.to(dtype=self.model_dtype)
 
         # Prepare decoder prompt
         decoder_input_ids = self.processor.tokenizer(

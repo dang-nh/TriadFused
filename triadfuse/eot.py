@@ -52,10 +52,17 @@ class EOT:
         self.resize_range = resize
         random.seed(seed)
 
-        # Albumentations for realistic image corruptions
-        self.jpeg = A.ImageCompression(
-            quality_lower=jpeg_q[0], quality_upper=jpeg_q[1], compression_type="jpeg", p=1.0
-        )
+        # Albumentations for realistic image corruptions  
+        try:
+            # Try newer API first
+            self.jpeg = A.ImageCompression(
+                quality_range=(jpeg_q[0], jpeg_q[1]), always_apply=True
+            )
+        except (TypeError, ValueError):
+            # Fallback to older API
+            self.jpeg = A.ImageCompression(
+                quality_lower=jpeg_q[0], quality_upper=jpeg_q[1], p=1.0
+            )
 
         self.photo = A.Compose(
             [

@@ -52,6 +52,13 @@ def load_image(path: Path | str, size: int = 896) -> torch.Tensor:
             new_h = size
             new_w = int(w * size / h)
         img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+    
+    # Ensure dimensions are reasonable for memory
+    w, h = img.size
+    if w * h > 1024 * 1024:  # Limit to ~1MP for memory safety
+        scale = (1024 * 1024 / (w * h)) ** 0.5
+        new_w, new_h = int(w * scale), int(h * scale)
+        img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
 
     # Convert to tensor
     transform = T.ToTensor()
@@ -103,7 +110,7 @@ def main():
     parser.add_argument(
         "--prompt",
         type=str,
-        default="<s_docvqa><s_question> What is the total amount? <s_answer>",
+        default="<s_cord-v2><s_menu><s_nm>",  # Better Donut format for general document extraction
         help="Task prompt for the model",
     )
     parser.add_argument(
@@ -186,8 +193,8 @@ def main():
     parser.add_argument(
         "--max_img_size",
         type=int,
-        default=896,
-        help="Maximum image dimension",
+        default=512,  # Reduced default for memory safety
+        help="Maximum image dimension (use smaller values to reduce memory usage)",
     )
     parser.add_argument(
         "--device",
@@ -213,8 +220,14 @@ def main():
     else:
         device = torch.device(args.device)
 
+    # Clear GPU memory if using CUDA
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
+
     console.print(f"[bold cyan]TriadFuse Attack Training[/bold cyan]")
     console.print(f"Device: {device}")
+    if device.type == "cuda":
+        console.print(f"GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f}GB")
     console.print(f"Input: {args.input}")
     console.print(f"Target: '{args.target}'")
     console.print()
@@ -247,9 +260,9 @@ def main():
     # Surrogate model
     model = DonutSurrogate(
         model_name=args.model,
-        device="cpu",
+        device=device,
         max_length=64,
-        use_8bit=False,  # Set to True if memory constrained
+        use_8bit=True if device.type == "cuda" else False,  # Use 8-bit on GPU to save memory
     )
 
     # Optimizer
@@ -322,7 +335,16 @@ def main():
 
         # Periodic logging
         if args.verbose and step % 20 == 0:
-            console.print(f"Step {step}: loss = {loss_val:.4f}")
+            mem_info = ""
+            if device.type == "cuda":
+                mem_used = torch.cuda.memory_allocated() / 1024**3
+                mem_cached = torch.cuda.memory_reserved() / 1024**3
+                mem_info = f" | GPU: {mem_used:.1f}GB/{mem_cached:.1f}GB"
+            console.print(f"Step {step}: loss = {loss_val:.4f}{mem_info}")
+            
+        # Clear cache periodically
+        if device.type == "cuda" and step % 50 == 0:
+            torch.cuda.empty_cache()
 
     # Final evaluation
     console.print("\n[yellow]Evaluating attack...[/yellow]")
